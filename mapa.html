@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>mapa</title>
+<style>
+:root{--bg:#090a0c;--card:#101317;--card2:#161a1f;--linha:#1e232a;--txt:#eceef1;--txt2:#9aa3ad;--txt3:#626b76;--ac:#3ddc84}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:var(--bg);color:var(--txt);font:13.5px/1.5 "Inter","Segoe UI",system-ui,sans-serif;overflow:hidden}
+canvas{position:fixed;inset:0;cursor:grab}
+.topo{position:fixed;top:12px;left:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;z-index:2;max-width:calc(100vw - 400px)}
+.topo b{font-size:15px;margin-right:6px}
+input[type=text]{background:var(--card);border:1px solid var(--linha);color:var(--txt);border-radius:8px;padding:7px 10px;font:inherit;width:220px}
+input[type=text]:focus{outline:none;border-color:var(--ac)}
+label.f{display:flex;align-items:center;gap:6px;background:var(--card);border:1px solid var(--linha);border-radius:999px;padding:4px 11px;font-size:12.5px;color:var(--txt2);cursor:pointer}
+label.f i{width:9px;height:9px;border-radius:50%;display:inline-block}
+.leg{position:fixed;left:12px;bottom:12px;background:var(--card);border:1px solid var(--linha);border-radius:10px;padding:9px 12px;font-size:12px;color:var(--txt2);z-index:2;max-width:340px;line-height:1.7}
+.leg span{display:inline-flex;align-items:center;gap:5px;margin-right:10px;white-space:nowrap}
+.leg i{width:9px;height:9px;border-radius:50%;display:inline-block}
+aside{position:fixed;top:0;right:0;width:380px;height:100%;background:var(--card);border-left:1px solid var(--linha);padding:16px 16px 40px;overflow:auto;z-index:3}
+aside h2{font-size:15px;word-break:break-all;margin-bottom:2px}
+aside .t{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--txt3);font-weight:600;margin:14px 0 5px}
+aside .d{color:var(--txt2);font-size:12.5px;margin-top:4px}
+aside a{display:block;color:var(--txt);text-decoration:none;padding:3px 0;font-size:12.5px;word-break:break-all;cursor:pointer}
+aside a:hover{color:var(--ac)}
+aside a small{color:var(--txt3)}
+aside .vz{color:var(--txt3);font-size:12.5px}
+</style></head><body>
+<canvas id="c"></canvas>
+<div class="topo"><b id="titulo">mapa</b><input type="text" id="busca" placeholder="search file, function or table">
+  <label class="f"><input type="checkbox" id="fImp" checked><i style="background:#626b76"></i>imports</label>
+  <label class="f"><input type="checkbox" id="fCh"><i style="background:#3ddc84"></i>calls</label>
+  <label class="f"><input type="checkbox" id="fTab" checked><i style="background:#5b9bd5"></i>database</label></div>
+<div class="leg" id="leg"></div>
+<aside id="lado"><h2>Click a node</h2><div class="d">A circle is a file (size = lines, color = folder). A blue square is a database table.
+  Drag the background to move, scroll to zoom, drag a node to reposition it. Search also finds functions inside files.</div></aside>
+<script>
+const G = /*__GRAPH__*/null;
+const $ = i => document.getElementById(i);
+const esc = t => String(t == null ? "" : t).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+const CORES = ["#3ddc84","#d9a441","#9b7fd4","#e0625b","#4fc3c3","#e08a4f","#7fa6d4","#c9d45b","#d47fb6","#8fd4a2"];
+const dono = id => id.indexOf("::") > 0 ? id.split("::")[0] : id;      // function -> its file
+const nos = {}, lista = [];
+Object.values(G.nodes).forEach(n => { if(n.type === "file" || n.type === "table"){ nos[n.id] = Object.assign({}, n); lista.push(nos[n.id]); } });
+const pastas = [...new Set(lista.filter(n => n.type === "file").map(n => n.folder))].sort();
+const sai = {}, entra = {};
+G.edges.forEach(e => { (sai[e.from] = sai[e.from] || []).push(e); (entra[e.to] = entra[e.to] || []).push(e); });
+// edges at file/table level
+const agg = {};
+G.edges.forEach(e => {
+  if(e.type === "contains" || e.type === "inherits") return;
+  const a = dono(e.from), b = dono(e.to);
+  if(a === b || !nos[a] || !nos[b]) return;
+  const tipo = e.type === "imports" ? "importa" : e.type === "calls" ? "chama" : "banco";
+  const k = a + "|" + b + "|" + tipo;
+  agg[k] = agg[k] || {a: nos[a], b: nos[b], tipo: tipo, n: 0, escreve: false};
+  agg[k].n += e.n; if(e.type === "writes" || e.type === "creates") agg[k].escreve = true;
+});
+const arestas = Object.values(agg);
+lista.forEach((n, i) => {
+  const ang = i * 2.399, r = 60 + 22 * Math.sqrt(i);
+  n.x = Math.cos(ang) * r; n.y = Math.sin(ang) * r; n.vx = 0; n.vy = 0;
+  n.r = n.type === "table" ? 5 : Math.max(5, Math.min(26, Math.sqrt(n.lines || 1) * 0.72));
+  n.cor = n.type === "table" ? "#5b9bd5" : CORES[pastas.indexOf(n.folder) % CORES.length];
+});
+$("titulo").textContent = "mapa · " + G.root.split(/[\\/]/).pop();
+$("leg").innerHTML = pastas.map((p, i) => '<span><i style="background:' + CORES[i % CORES.length] + '"></i>' + esc(p) + '</span>').join("")
+  + '<span><i style="background:#5b9bd5;border-radius:2px"></i>table</span><br>blue line = reads &middot; orange = writes';
+
+const cv = $("c"), cx = cv.getContext("2d");
+let W, H, zoom = 0.75, ox = 0, oy = 0, sel = null, calor = 1, arrasta = null, pan = null, acha = "";
+function tam(){ W = cv.width = innerWidth * devicePixelRatio; H = cv.height = innerHeight * devicePixelRatio; cv.style.width = innerWidth + "px"; cv.style.height = innerHeight + "px"; }
+addEventListener("resize", tam); tam();
+const visivel = e => (e.tipo === "importa" && $("fImp").checked) || (e.tipo === "chama" && $("fCh").checked) || (e.tipo === "banco" && $("fTab").checked);
+function passo(){
+  if(calor < 0.02) return;
+  for(let i = 0; i < lista.length; i++){ const a = lista[i];
+    for(let j = i + 1; j < lista.length; j++){ const b = lista[j];
+      let dx = a.x - b.x, dy = a.y - b.y, d2 = dx * dx + dy * dy + 0.01;
+      if(d2 > 250000) continue;
+      const f = 2600 / d2, d = Math.sqrt(d2); dx /= d; dy /= d;
+      a.vx += dx * f; a.vy += dy * f; b.vx -= dx * f; b.vy -= dy * f; } }
+  arestas.forEach(e => { if(e.tipo === "chama") return;
+    const dx = e.b.x - e.a.x, dy = e.b.y - e.a.y, d = Math.sqrt(dx * dx + dy * dy) + 0.01, alvo = e.tipo === "banco" ? 70 : 120;
+    const f = (d - alvo) * 0.012; e.a.vx += dx / d * f; e.a.vy += dy / d * f; e.b.vx -= dx / d * f; e.b.vy -= dy / d * f; });
+  lista.forEach(n => { n.vx -= n.x * 0.0018; n.vy -= n.y * 0.0018;
+    if(n !== arrasta){ n.x += n.vx * calor; n.y += n.vy * calor; } n.vx *= 0.82; n.vy *= 0.82; });
+  calor *= 0.992;
+}
+function tela(n){ return [W / 2 + (n.x + ox) * zoom * devicePixelRatio, H / 2 + (n.y + oy) * zoom * devicePixelRatio]; }
+function desenha(){
+  passo();
+  cx.clearRect(0, 0, W, H);
+  const viz = sel ? new Set([sel.id]) : null;
+  if(sel) arestas.forEach(e => { if(visivel(e) && (e.a === sel || e.b === sel)){ viz.add(e.a.id); viz.add(e.b.id); } });
+  arestas.forEach(e => { if(!visivel(e)) return;
+    const liga = sel && (e.a === sel || e.b === sel);
+    const [x1, y1] = tela(e.a), [x2, y2] = tela(e.b);
+    cx.strokeStyle = e.tipo === "banco" ? (e.escreve ? "#e08a4f" : "#5b9bd5") : e.tipo === "chama" ? "#3ddc84" : "#7a838f";
+    cx.globalAlpha = sel ? (liga ? 0.9 : 0.04) : (e.tipo === "importa" ? 0.22 : 0.3);
+    cx.lineWidth = (liga ? 1.6 : 0.8) * devicePixelRatio;
+    cx.beginPath(); cx.moveTo(x1, y1); cx.lineTo(x2, y2); cx.stroke();
+    if(liga){ const t = 0.72, ax = x1 + (x2 - x1) * t, ay = y1 + (y2 - y1) * t, an = Math.atan2(y2 - y1, x2 - x1), s = 6 * devicePixelRatio;
+      cx.beginPath(); cx.moveTo(ax, ay); cx.lineTo(ax - s * Math.cos(an - 0.4), ay - s * Math.sin(an - 0.4)); cx.lineTo(ax - s * Math.cos(an + 0.4), ay - s * Math.sin(an + 0.4)); cx.fillStyle = cx.strokeStyle; cx.fill(); } });
+  lista.forEach(n => { const [x, y] = tela(n), r = n.r * zoom * devicePixelRatio;
+    const apagado = (viz && !viz.has(n.id)) || (acha && !n.acha);
+    cx.globalAlpha = apagado ? 0.13 : 1; cx.fillStyle = n.cor;
+    cx.beginPath(); if(n.type === "table") cx.rect(x - r, y - r, r * 2, r * 2); else cx.arc(x, y, r, 0, 6.3); cx.fill();
+    if(n === sel){ cx.strokeStyle = "#fff"; cx.lineWidth = 2 * devicePixelRatio; cx.stroke(); }
+    if(!apagado && (zoom > 1.05 || n.r > 13 || (viz && viz.has(n.id)) || (acha && n.acha))){
+      cx.fillStyle = "#eceef1"; cx.font = (11 * devicePixelRatio) + "px Inter,Segoe UI,sans-serif"; cx.textAlign = "center";
+      cx.fillText(n.type === "table" ? n.name : n.name.split("/").pop().replace(/\.py$/, ""), x, y + r + 12 * devicePixelRatio); } });
+  cx.globalAlpha = 1;
+  requestAnimationFrame(desenha);
+}
+function em(ev){ const mx = ev.clientX * devicePixelRatio, my = ev.clientY * devicePixelRatio; let achou = null;
+  lista.forEach(n => { const [x, y] = tela(n), r = Math.max(n.r * zoom * devicePixelRatio, 7 * devicePixelRatio); if((mx - x) ** 2 + (my - y) ** 2 < r * r) achou = n; }); return achou; }
+cv.addEventListener("pointerdown", ev => { const n = em(ev); cv.setPointerCapture(ev.pointerId);
+  if(n){ arrasta = n; arrasta.mexeu = false; } else pan = {x: ev.clientX, y: ev.clientY, ox: ox, oy: oy, mexeu: false}; });
+cv.addEventListener("pointermove", ev => {
+  if(arrasta){ arrasta.x += ev.movementX / zoom; arrasta.y += ev.movementY / zoom; arrasta.mexeu = true; calor = Math.max(calor, 0.25); }
+  else if(pan){ ox = pan.ox + (ev.clientX - pan.x) / zoom; oy = pan.oy + (ev.clientY - pan.y) / zoom; pan.mexeu = true; } });
+cv.addEventListener("pointerup", () => { if(arrasta && !arrasta.mexeu) escolhe(arrasta.id); else if(pan && !pan.mexeu){ sel = null; } arrasta = null; pan = null; });
+cv.addEventListener("wheel", ev => { ev.preventDefault(); zoom = Math.max(0.15, Math.min(5, zoom * (ev.deltaY < 0 ? 1.12 : 0.89))); }, {passive: false});
+["fImp","fCh","fTab"].forEach(i => $(i).addEventListener("change", () => { calor = Math.max(calor, 0.3); }));
+
+const lk = (id, extra) => '<a onclick="escolhe(\'' + id.replace(/\\/g, "\\\\").replace(/'/g, "\\'") + '\')">' + esc(id.replace(/^table:/, "")) + (extra ? ' <small>' + extra + '</small>' : '') + '</a>';
+function bloco(t, itens){ return '<div class="t">' + t + ' (' + itens.length + ')</div>' + (itens.length ? itens.join("") : '<div class="vz">none</div>'); }
+function escolhe(id){
+  const n = G.nodes[id]; if(!n) return;
+  sel = nos[dono(id)] || null;
+  const S = (sai[id] || []), E = (entra[id] || []);
+  const uni = (es, lado, tipos) => { const m = {}; es.filter(e => tipos.indexOf(e.type) >= 0).forEach(e => { m[e[lado]] = (m[e[lado]] || "") + (e.certainty === "INFERRED" ? "inferred" : ""); }); return Object.keys(m).sort().map(k => lk(k, m[k])); };
+  let h = '<h2>' + esc(n.type === "table" ? n.name : id) + '</h2><div class="d">' + n.type
+    + (n.lines ? ' &middot; ' + n.lines + ' lines' : '') + (n.line ? ' &middot; line ' + n.line : '') + '</div>' + (n.doc ? '<div class="d">' + esc(n.doc) + '</div>' : '');
+  if(n.type === "file"){
+    h += bloco("imported by", uni(E, "from", ["imports"])) + bloco("imports", uni(S, "to", ["imports"]));
+    const filhos = S.filter(e => e.type === "contains").map(e => e.to);
+    const tb = {}; filhos.concat([id]).forEach(f => (sai[f] || []).forEach(e => { if(["reads","writes","creates"].indexOf(e.type) >= 0){ tb[e.to] = tb[e.to] || {}; tb[e.to][e.type] = 1; } }));
+    h += bloco("tables it touches", Object.keys(tb).sort().map(k => lk(k, Object.keys(tb[k]).join(", "))));
+    h += bloco("contains", filhos.sort((a, b) => G.nodes[a].line - G.nodes[b].line).map(f => lk(f, G.nodes[f].lines + " lines &middot; called from " + new Set((entra[f] || []).filter(e => e.type === "calls").map(e => e.from)).size)));
+  } else if(n.type === "table"){
+    h += bloco("created by", uni(E, "from", ["creates"])) + bloco("written by", uni(E, "from", ["writes"])) + bloco("read by", uni(E, "from", ["reads"]));
+  } else {
+    h += '<div class="t">lives in</div>' + lk(n.file) + bloco("called by", uni(E, "from", ["calls"])) + bloco("calls", uni(S, "to", ["calls"]))
+      + bloco("tables it touches", S.filter(e => ["reads","writes","creates"].indexOf(e.type) >= 0).map(e => lk(e.to, e.type)));
+  }
+  $("lado").innerHTML = h; $("lado").scrollTop = 0;
+}
+$("busca").addEventListener("input", function(){
+  acha = this.value.trim().toLowerCase();
+  lista.forEach(n => n.acha = false);
+  if(!acha) return;
+  const hits = Object.keys(G.nodes).filter(k => k.toLowerCase().indexOf(acha) >= 0);
+  hits.forEach(k => { const d = nos[dono(k)]; if(d) d.acha = true; });
+  $("lado").innerHTML = '<h2>Search: ' + esc(acha) + '</h2>' + bloco("matches", hits.slice(0, 120).map(k => lk(k, G.nodes[k].type)));
+  sel = null;
+});
+desenha();
+</script></body></html>
